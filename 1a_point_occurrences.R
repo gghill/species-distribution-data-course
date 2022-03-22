@@ -17,6 +17,8 @@ if (!file.exists("../outputs")) dir.create("../outputs")  # '../' goes up one le
 # every time you get an error about a missing or irremovable package, install that package -- e.g. install.packages("ridigbio") -- and try again
 
 require(sdmpredictors)
+require(tidyverse)
+require(dplyr)
 library(rgbif)
 library(terra)
 library(geodata)
@@ -25,6 +27,8 @@ library(spocc)
 library(neotoma)
 library(data.table)
 library(raster)
+my.colors = colorRampPalette(c("#5E85B8","#EDF0C0","#C13127"))
+
 
 
 # DOWNLOAD OCCURRENCE DATA FROM GBIF ####
@@ -38,7 +42,7 @@ library(raster)
 # define the species you want to get data for:
 my_species <- "Macrocystis pyrifera"  # if you then choose a different species, change it here, not all over the script!
 
-gbif_data <- occ_data(scientificName = my_species, hasCoordinate = TRUE, limit = 5000)
+gbif_data <- occ_data(scientificName = my_species, hasCoordinate = TRUE, limit = 500)
 
 gbif_data  # scroll up to see the full result. If "Records found" is larger than "Records returned", you need to increase the 'limit' argument above -- run '?occ_data' for options and limitations. Mind that data download takes a long time when there are many occurrences!
 
@@ -50,13 +54,17 @@ countries <- world(resolution = 5, level = 0, path = "./outputs/maps")
 plot(countries, border = "darkgrey")
 
 # xmin, xmax, ymin, ymax coordinates of a region of interest:
-my_window <- c(-130, -110, 10, 50) # if you then choose a different window, change it here, and not all over the script!
+#my_window <- c(-130, -110, 10, 50) # if you then choose a different window, change it here, and not all over the script!
+my_window <- c(-10, 5, 35, 45)  # spain
+
 plot(ext(my_window), border = "red", lwd = 2, add = TRUE)  # check that it's where you want it on the map
 w_coast_ext <- extent(-130, -110, 10, 50) # raster extent to match window (if desired)
 
-# incorporate bio-ORACLE layers ----
+## incorporate bio-ORACLE layers ----
 surf_vel_max <- load_layers(c("BO2_curvelmax_bdmin","BO2_curvelmin_bdmin"))
 surf_vel_crop <- crop(surf_vel_max, w_coast_ext) # if mapping globally don't use crop
+SST <- load_layers("BO2_tempmean_ss")
+
 
 # convert to dataframes
 vel_max <- as.data.frame(surf_vel_max[[1]],xy=TRUE)
@@ -128,15 +136,24 @@ names(vel_comb)
 vel_comb_mut <- mutate(vel_comb,
                        threshold = ifelse(100 > vel_comb$`Minimum Surface Current v`*100 & vel_comb$`Minimum Surface Current v`*100 > 10 & 10 < vel_comb$`Maximum Surface Current v`*100 & vel_comb$`Maximum Surface Current v`*100 < 100,
                                           (vel_comb$`Minimum Surface Current v`*100+vel_comb$`Maximum Surface Current v`*100)/2,0)
-)
+) %>%
+  drop_na()
 vel_comb_mut <- vel_comb_mut[,c("x","y","threshold")]
 vel_raster <- rasterFromXYZ(vel_comb_mut, crs = "EPSG:4326")
+vel_raster_max <- rasterFromXYZ(vel_comb_mut[,c("x","y","Maximum Surface Current v")])
 # goal is to plot and label the threshold value
 # vel_raster is a raster form x,y,threshold surface velocity (0 if it falls outside the range, otherwise average of max/min)
 pal <- colorNumeric(
-  palette = my.colors(10),
-  domain = vel_comb_mut$threshold
+  palette = my.colors(100),
+  domain = vel_comb_mut$`Maximum Surface Current v`
 )
+SST_df <- as.data.frame(SST@layers[[1]]) %>%
+  drop_na()
+pal_SST <- colorNumeric(
+  palette = my.colors(100),
+  domain = SST_df$BO2_tempmean_ss
+)
+
 
 leaflet() %>%
   # add background map (default OpenStreetMap):
@@ -145,6 +162,16 @@ leaflet() %>%
   addLegend(pal = pal, values = vel_comb_mut$threshold) %>%
   # add occurrence points (circles), defining which TABLE and COLUMNS contain their longitude and latitude coordinates:
   addCircles(data = gbif_occurrences, lng = ~ decimalLongitude, lat = ~ decimalLatitude, label = ~ institutionCode)  # you can choose another column for the "label", depending on what information you want to see when you mouse over each point on the map
+
+# plot with SST mean instead
+leaflet() %>%
+  # add background map (default OpenStreetMap):
+  addTiles() %>%
+  addRasterImage(SST[[1]], colors = my.colors(100), opacity = .8) %>% # add surface velocity raster
+  addLegend(pal = pal_SST, values = SST_df$BO2_tempmean_ss) %>%
+  # add occurrence points (circles), defining which TABLE and COLUMNS contain their longitude and latitude coordinates:
+  addCircles(data = gbif_occurrences, lng = ~ decimalLongitude, lat = ~ decimalLatitude, label = ~ institutionCode)  # you can choose another column for the "label", depending on what information you want to see when you mouse over each point on the map
+
 
 # use the mouse to zoom and pan on the map
 
@@ -168,6 +195,7 @@ names(spocc_data$gbif$data[[1]]) # 129 columns of data
 # save this object to disk:
 saveRDS(spocc_data, paste0("./outputs/spocc_", my_species, "_raw.rds"))  # we name it "raw" because the data haven't been cleaned yet
 
+spocc_data <- readRDS(paste0("./outputs/spocc_", my_species, "_raw.rds"))
 
 # combine the 'spocc_data' list into one data frame:
 ?occ2df
@@ -193,11 +221,12 @@ leaflet() %>%
 
 unique(spocc_df$prov)
 
+## plot data from different sources and add raster enviro layer ----
 leaflet() %>%
   addTiles() %>%
   # add global raster + legend
-  addRasterImage(vel_raster, colors = my.colors(10), opacity = .8) %>% # add surface velocity raster
-  addLegend(pal = pal, values = vel_comb_mut$threshold) %>%
+  addRasterImage(vel_raster, colors = my.colors(100), opacity = .8) %>% # add surface velocity raster
+  addLegend(pal = pal, values = vel_comb_mut$`Maximum Surface Current v`) %>%
   # add occurrence points (circles), defining which TABLE and COLUMNS contain their longitude and latitude coordinates:
   addCircles(data = subset(spocc_df, prov == "gbif"), lng = ~ longitude, lat = ~ latitude, col = "blue") %>%
   addCircles(data = subset(spocc_df, prov == "bison"), lng = ~ longitude, lat = ~ latitude, col = "red") %>%
@@ -205,6 +234,30 @@ leaflet() %>%
   addCircles(data = subset(spocc_df, prov == "obis"), lng = ~ longitude, lat = ~ latitude, col = "bright green") %>%
   addCircles(data = subset(spocc_df, prov == "ala"), lng = ~ longitude, lat = ~ latitude, col = "purple") %>%
 addCircles(data = subset(spocc_df, prov == "inat"), lng = ~ longitude, lat = ~ latitude, col = "pink")
+
+pal_prov <- colorFactor(
+  palette = "viridis",
+  domain = spocc_df$prov
+)
+# try again with SST instead
+leaflet() %>%
+  addTiles() %>%
+  # add global raster + legend
+  addRasterImage(SST[[1]], colors = my.colors(100), opacity = .8, group = "SST") %>% # add surface velocity raster
+  addLegend("bottomright",title = "mean SST in deg C",pal = pal_SST, values = SST_df$BO2_tempmean_ss, group = "SST") %>%
+  # add occurrence points (circles), defining which TABLE and COLUMNS contain their longitude and latitude coordinates:
+    addCircles(data = spocc_df, lng = ~ longitude, lat = ~ latitude, col = ~pal_prov(prov), group = "Kelp") %>%
+    addLegend("bottomright", pal = pal_prov, title="Kelp obs source",
+            values = spocc_df$prov, group="Kelp") %>%
+  addLayersControl(overlayGroups = c("SST","Kelp"),
+                     options = layersControlOptions(collapsed = FALSE))  
+  
+  # addCircles(data = subset(spocc_df, prov == "gbif"), lng = ~ longitude, lat = ~ latitude, col = "blue") %>%
+  # addCircles(data = subset(spocc_df, prov == "bison"), lng = ~ longitude, lat = ~ latitude, col = "red") %>%
+  # addCircles(data = subset(spocc_df, prov == "idigbio"), lng = ~ longitude, lat = ~ latitude, col = "yellow") %>%
+  # addCircles(data = subset(spocc_df, prov == "obis"), lng = ~ longitude, lat = ~ latitude, col = "bright green") %>%
+  # addCircles(data = subset(spocc_df, prov == "ala"), lng = ~ longitude, lat = ~ latitude, col = "purple") %>%
+  # addCircles(data = subset(spocc_df, prov == "inat"), lng = ~ longitude, lat = ~ latitude, col = "pink") %>%
 
 # but BEWARE! the 'occ2df' function excludes columns that may be crucial for data cleaning, like those specifying the spatial uncertainty of the coordinates (e.g. "coordinateUncertaintyInMeters" in GBIF, "positional_accuracy" in iNaturalist) or even the "occurrence status", where the species may actually be defined as absent
 # that's why it's important to keep the complete 'spocc_data' object with all the information

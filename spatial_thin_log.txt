@@ -1,0 +1,17 @@
+********************************************** 
+ Beginning Spatial Thinning.
+ Script Started at: Fri Mar 11 17:36:42 2022
+
+Thinning Parameter Used (in km): 10
+Number of replicates of thinning script: 10
+
+Elapsed time for thinning completion
+5.33 6.63 12.05 NA NA
+
+Number of data.frames per locations retained
+loc.cnt df.freq
+397	398	399	400	401
+2	3	3	1	1
+Maximum number of records after thinning: 401
+Number of data.frames with max records: 1
+No files written for this run.

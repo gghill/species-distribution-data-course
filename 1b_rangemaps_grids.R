@@ -18,7 +18,7 @@ library(leaflet)
 
 # import occurrences saved with previous script:
 
-my_species <- "Alces alces"  # if you then choose a different species, change it here, and not all over the script!
+my_species <- "Microtus cabrerae"  # if you then choose a different species, change it here, and not all over the script!
 
 gbif_occurrences <- read.csv(paste0("./outputs/GBIF_", my_species, "_raw.csv"))
 

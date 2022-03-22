@@ -1,0 +1,1 @@
+https://kart.miljodirektoratet.no/geoserver/fjordkatalogen/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=fjordkatalogen_omrade&outputformat=SHAPE-ZIP
